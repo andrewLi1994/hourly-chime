@@ -3,6 +3,8 @@ import time
 from datetime import datetime
 import sys
 import os
+import json
+import re
 
 # --- 配置 ---
 # 静音时段 (小时, 24小时制)
@@ -12,7 +14,7 @@ DND_START = 22  # 22:00 开始静音
 DND_END = 8     # 08:00 结束静音
 
 # 播放语速 (默认 175)
-SPEECH_RATE = 180
+SPEECH_RATE = 200
 
 # 使用的语音 (可选: Ting-Ting, Mei-Jia, Sin-Ji 等)
 # 留空使用系统默认
@@ -51,6 +53,36 @@ def play_music(file_path):
     except FileNotFoundError:
         print("错误: 找不到 'afplay' 命令。")
 
+def get_ai_reminder():
+    """使用 OpenClaw CLI 调用 main 代理获取 AI 喝水提醒"""
+    print("正在通过 OpenClaw Agent 获取 AI 喝水提醒...")
+    cmd = [
+        "openclaw", "agent", 
+        "--agent", "main", 
+        "--message", "Give me a short, fun English only reminder to drink water. One sentence only, and don't use any emojis.", 
+        "--json"
+    ]
+    try:
+        # 设置 20 秒超时
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            # 从 JSON 路径中提取文本 (data['result']['payloads'][0]['text'])
+            try:
+                text = data['result']['payloads'][0]['text']
+                # 清理 Markdown 符号（如 * _ #），防止 say 读出这些符号
+                return re.sub(r'[*_#]', '', text).strip()
+            except (KeyError, IndexError):
+                print("解析 AI 响应失败，数据格式可能不匹配。")
+        else:
+            print(f"OpenClaw Agent 返回错误: {result.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        print("获取 AI 提醒超时。")
+    except Exception as e:
+        print(f"AI 获取失败: {e}")
+    
+    return "Time to stay hydrated and drink some water."
+
 def get_chime_text():
     """根据当前时间生成报时文本"""
     now = datetime.now()
@@ -80,6 +112,8 @@ def main():
     if "--test" in sys.argv:
         print("--- 测试模式 ---")
         speak(get_chime_text())
+        reminder = get_ai_reminder()
+        speak(reminder)
         return
 
     # 音乐播放测试
@@ -114,6 +148,10 @@ def main():
                         # 其他整点播报语音
                         text = get_chime_text()
                         speak(text)
+                        
+                        # 获取并播报 AI 提醒
+                        reminder = get_ai_reminder()
+                        speak(reminder)
                 else:
                     print(f"[{now.strftime('%H:%M:%S')}] 处于勿扰时段，跳过报时。")
                 last_chime_hour = current_hour
