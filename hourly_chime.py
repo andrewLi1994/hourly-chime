@@ -20,6 +20,9 @@ SPEECH_RATE = 200
 # 留空使用系统默认
 VOICE = "Mei-Jia" 
 
+# 机场整点报时音 (文件名较长，建议保持原样或重命名)
+CHIME_AUDIO = "gracesoundproductions-airport-announcement-call-chime-start-and-finish-342984.mp3"
+
 # 5 点整播放的音乐设置
 MUSIC_FILE = "Japanese_Music.mp3"
 MUSIC_HOUR = 17  # 17:00 是下午 5 点
@@ -59,7 +62,7 @@ def get_ai_reminder():
     cmd = [
         "openclaw", "agent", 
         "--agent", "main", 
-        "--message", "Give me a short, fun English only reminder to drink water. One sentence only, and don't use any emojis.", 
+        "--message", "Give me a short, simple and fun English ONLY reminder to drink water. One sentence only, and don't use any emojis.", 
         "--json"
     ]
     try:
@@ -111,7 +114,12 @@ def main():
     # 测试模式：直接报时并退出
     if "--test" in sys.argv:
         print("--- 测试模式 ---")
-        speak(get_chime_text())
+        # 播放机场提示音
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        chime_path = os.path.join(script_dir, CHIME_AUDIO)
+        play_music(chime_path)
+        
+        # 获取并播报 AI 提醒
         reminder = get_ai_reminder()
         speak(reminder)
         return
@@ -145,9 +153,10 @@ def main():
                         music_path = os.path.join(script_dir, MUSIC_FILE)
                         play_music(music_path)
                     else:
-                        # 其他整点播报语音
-                        text = get_chime_text()
-                        speak(text)
+                        # 播放机场提示音代替文字报时
+                        script_dir = os.path.dirname(os.path.abspath(__file__))
+                        chime_path = os.path.join(script_dir, CHIME_AUDIO)
+                        play_music(chime_path)
                         
                         # 获取并播报 AI 提醒
                         reminder = get_ai_reminder()
