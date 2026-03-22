@@ -5,6 +5,7 @@ import sys
 import os
 import json
 import re
+import threading
 
 # --- 配置 ---
 # 静音时段 (小时, 24小时制)
@@ -86,6 +87,18 @@ def get_ai_reminder():
     
     return "Time to stay hydrated and drink some water."
 
+# --- 缓存系统 ---
+cached_reminder = None
+cache_lock = threading.Lock()
+
+def update_cache():
+    """异步更新 AI 提醒缓存"""
+    global cached_reminder
+    new_reminder = get_ai_reminder()
+    with cache_lock:
+        cached_reminder = new_reminder
+    print(f"缓存已更新: {cached_reminder}")
+
 def get_chime_text():
     """根据当前时间生成报时文本"""
     now = datetime.now()
@@ -114,14 +127,18 @@ def main():
     # 测试模式：直接报时并退出
     if "--test" in sys.argv:
         print("--- 测试模式 ---")
+        # 确保有缓存
+        if not cached_reminder:
+            update_cache()
+            
         # 播放机场提示音
         script_dir = os.path.dirname(os.path.abspath(__file__))
         chime_path = os.path.join(script_dir, CHIME_AUDIO)
         play_music(chime_path)
         
-        # 获取并播报 AI 提醒
-        reminder = get_ai_reminder()
-        speak(reminder)
+        # 立即使用缓存播报
+        with cache_lock:
+            speak(cached_reminder)
         return
 
     # 音乐播放测试
@@ -135,6 +152,10 @@ def main():
     print("整点报时脚本已启动...")
     print(f"勿扰模式设置: {DND_START:02d}:00 - {DND_END:02d}:00")
     print(f"5 点整特殊播报: {MUSIC_FILE}")
+    
+    # 启动时预加载第一次提醒
+    print("正在预加载首次 AI 提醒...")
+    update_cache()
     
     last_chime_hour = -1
     
@@ -153,14 +174,22 @@ def main():
                         music_path = os.path.join(script_dir, MUSIC_FILE)
                         play_music(music_path)
                     else:
-                        # 播放机场提示音代替文字报时
+                        # 核心逻辑：即时播放缓存内容，然后后台更新下一条
                         script_dir = os.path.dirname(os.path.abspath(__file__))
                         chime_path = os.path.join(script_dir, CHIME_AUDIO)
+                        
+                        # 1. 播放提示音 (阻塞)
                         play_music(chime_path)
                         
-                        # 获取并播报 AI 提醒
-                        reminder = get_ai_reminder()
-                        speak(reminder)
+                        # 2. 立即从缓存播报 (零延迟)
+                        current_reminder = "Time to stay hydrated and drink some water."
+                        with cache_lock:
+                            if cached_reminder:
+                                current_reminder = cached_reminder
+                        speak(current_reminder)
+                        
+                        # 3. 异步获取下一小时的提醒
+                        threading.Thread(target=update_cache, daemon=True).start()
                 else:
                     print(f"[{now.strftime('%H:%M:%S')}] 处于勿扰时段，跳过报时。")
                 last_chime_hour = current_hour
