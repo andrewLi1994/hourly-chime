@@ -6,6 +6,9 @@ import os
 import json
 import re
 import threading
+import asyncio
+import edge_tts
+import tempfile
 
 # --- 配置 ---
 # 静音时段 (小时, 24小时制)
@@ -14,12 +17,12 @@ import threading
 DND_START = 22  # 22:00 开始静音
 DND_END = 8     # 08:00 结束静音
 
-# 播放语速 (默认 175)
-SPEECH_RATE = 200
-
-# 使用的语音 (可选: Ting-Ting, Mei-Jia, Sin-Ji 等)
-# 留空使用系统默认
-VOICE = "Mei-Jia" 
+# --- 默认语音配置 (支持中英日自动切换) ---
+VOICES = {
+    "zh": "zh-CN-XiaoxiaoNeural",
+    "en": "en-US-AvaNeural",
+    "ja": "ja-JP-NanamiNeural"
+}
 
 # 机场整点报时音 (文件名较长，建议保持原样或重命名)
 CHIME_AUDIO = "gracesoundproductions-airport-announcement-call-chime-start-and-finish-342984.mp3"
@@ -28,20 +31,55 @@ CHIME_AUDIO = "gracesoundproductions-airport-announcement-call-chime-start-and-f
 MUSIC_FILE = "Japanese_Music.mp3"
 MUSIC_HOUR = 17  # 17:00 是下午 5 点
 
+def get_voice_for_text(text):
+    """根据文本内容自动选择最合适的语音"""
+    # 检查是否包含日语假名 (Hiragana/Katakana)
+    if re.search(r'[\u3040-\u309F\u30A0-\u30FF]', text):
+        return VOICES["ja"]
+    # 检查是否包含中文字符
+    if re.search(r'[\u4E00-\u9FFF]', text):
+        return VOICES["zh"]
+    # 默认使用英文
+    return VOICES["en"]
+
+async def generate_speech(text, voice, output_file):
+    """异步生成语音文件"""
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_file)
+
 def speak(text):
-    """调用 macOS 'say' 命令进行播报"""
-    print(f"正在播报: {text}")
-    cmd = ["say", "-r", str(SPEECH_RATE)]
-    if VOICE:
-        cmd.extend(["-v", VOICE])
-    cmd.append(text)
+    """调用 Edge TTS 播放语音 (优先使用预生成的缓存)"""
+    global cached_audio_path
     
+    with cache_lock:
+        # 必须文本内容完全匹配且文件存在，才使用缓存
+        if cached_reminder == text and cached_audio_path and os.path.exists(cached_audio_path):
+            print(f"使用预生成缓存播报...")
+            try:
+                subprocess.run(["afplay", cached_audio_path], check=True)
+                return
+            except Exception as e:
+                print(f"缓存播放失败: {e}")
+
+    # Fallback: 如果没有缓存，则现场生成 (现有逻辑)
+    voice = get_voice_for_text(text)
+    print(f"无缓存，正在现场生成语音 [{voice}] 播报: {text}")
+    
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+        tmp_path = tmp_file.name
+        
     try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"语音播报失败: {e}")
-    except FileNotFoundError:
-        print("错误: 找不到 'say' 命令。请确保在 macOS 上运行。")
+        asyncio.run(generate_speech(text, voice, tmp_path))
+        subprocess.run(["afplay", tmp_path], check=True)
+    except Exception as e:
+        print(f"播报失败: {e}")
+        try:
+            subprocess.run(["say", text])
+        except:
+            pass
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 def play_music(file_path):
     """调用 macOS 'afplay' 命令播放音乐"""
@@ -63,7 +101,7 @@ def get_ai_reminder():
     cmd = [
         "openclaw", "agent", 
         "--agent", "main", 
-        "--message", "Give me a short, simple and fun English ONLY reminder to drink water. One sentence only, and don't use any emojis.", 
+        "--message", "Give me a short, simple and fun English ONLY reminder to drink water. One sentence only, and don't use any emojis and name.", 
         "--json"
     ]
     try:
@@ -89,27 +127,38 @@ def get_ai_reminder():
 
 # --- 缓存系统 ---
 cached_reminder = None
-cache_lock = threading.Lock()
+cached_audio_path = None
+cache_lock = threading.RLock()
 
 def update_cache():
-    """异步更新 AI 提醒缓存"""
-    global cached_reminder
+    """异步更新 AI 提醒缓存（文本 + 音频）"""
+    global cached_reminder, cached_audio_path
+    
+    # 1. 获取文字提醒
     new_reminder = get_ai_reminder()
-    with cache_lock:
-        cached_reminder = new_reminder
-    print(f"缓存已更新: {cached_reminder}")
+    
+    # 2. 预生成音频文件
+    voice = get_voice_for_text(new_reminder)
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # 使用固定名称的缓存文件
+    new_audio_path = os.path.join(script_dir, "reminder_cache.mp3")
+    
+    try:
+        print(f"正在预生成音频缓存 [{voice}]...")
+        asyncio.run(generate_speech(new_reminder, voice, new_audio_path))
+        
+        with cache_lock:
+            cached_reminder = new_reminder
+            cached_audio_path = new_audio_path
+        print(f"缓存已更新 (文本+音频): {cached_reminder}")
+        
+    except Exception as e:
+        print(f"预生成音频失败: {e}")
+        with cache_lock:
+            cached_reminder = new_reminder
+            cached_audio_path = None
 
-def get_chime_text():
-    """根据当前时间生成报时文本"""
-    now = datetime.now()
-    hour = now.hour
-    
-    # 转换为 12 小时制播报更自然
-    period = "上午" if hour < 12 else "下午"
-    display_hour = hour if hour <= 12 else hour - 12
-    if display_hour == 0: display_hour = 12
-    
-    return f"现在是{period}{display_hour}点整。"
 
 def is_dnd_time():
     """判断是否在勿扰模式内"""
@@ -129,6 +178,7 @@ def main():
         print("--- 测试模式 ---")
         # 确保有缓存
         if not cached_reminder:
+            print("正在获取测试提醒...")
             update_cache()
             
         # 播放机场提示音
@@ -137,8 +187,12 @@ def main():
         play_music(chime_path)
         
         # 立即使用缓存播报
+        current_reminder = "Time to stay hydrated."
         with cache_lock:
-            speak(cached_reminder)
+            if cached_reminder:
+                current_reminder = cached_reminder
+        
+        speak(current_reminder)
         return
 
     # 音乐播放测试
@@ -153,9 +207,9 @@ def main():
     print(f"勿扰模式设置: {DND_START:02d}:00 - {DND_END:02d}:00")
     print(f"5 点整特殊播报: {MUSIC_FILE}")
     
-    # 启动时预加载第一次提醒
-    print("正在预加载首次 AI 提醒...")
-    update_cache()
+    # 启动时后台异步预加载第一次提醒
+    print("正在启动首次 AI 提醒预加载 (后台)...")
+    threading.Thread(target=update_cache, daemon=True).start()
     
     last_chime_hour = -1
     
@@ -181,7 +235,7 @@ def main():
                         # 1. 播放提示音 (阻塞)
                         play_music(chime_path)
                         
-                        # 2. 立即从缓存播报 (零延迟)
+                        # 2. 立即从缓存播报 AI 提醒 (零延迟)
                         current_reminder = "Time to stay hydrated and drink some water."
                         with cache_lock:
                             if cached_reminder:
