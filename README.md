@@ -76,6 +76,6 @@ SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk swift build --pa
 
 仓库内的 `assets/audio/hourly-chime.wav` 与 `hourly-music.wav` 由
 `scripts/generate_audio.py` 使用纯数学波形确定性生成，不包含采样、录音或第三方音频。
-执行该脚本可以重建完全相同的 WAV 文件。早期来源不明的 MP3 已从当前版本移除；公开仓库还应从 Git 历史中清除旧文件。
+执行该脚本可以重建完全相同的 WAV 文件。早期来源不明的 MP3 已从当前版本以及分支、标签可达的 Git 历史中移除。
 
 旧的 `hourly_chime.py` 仅作兼容入口，不再运行全天循环；旧的常驻 LaunchAgent plist 已删除。
