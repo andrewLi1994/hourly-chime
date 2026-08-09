@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .env
 reminder_cache.mp3
+.build/
+build/
+dist/
+*.egg-info/
+.venv/
