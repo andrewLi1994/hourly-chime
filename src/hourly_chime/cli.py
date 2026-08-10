@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import audio, launchd, paths, providers, state
+from . import audio, keychain, launchd, paths, providers, state
 from .config import ConfigError, default_config, load_config, save_config, validate_config
 from .runtime import JobLocked, run_play, run_refresh
 
@@ -189,12 +189,16 @@ def command_doctor(args: argparse.Namespace) -> int:
         "edge_tts": {"ok": importlib.util.find_spec("edge_tts") is not None},
         "openclaw": {"ok": bool(shutil.which("openclaw") or Path("/opt/homebrew/bin/openclaw").is_file())},
         "codex": _codex_status(),
+        "keychain_helper": keychain.status(),
         "chime_audio": {"ok": audio.validate_audio(paths.audio_dir() / config["audio"]["chime_file"])},
         "music_audio": {"ok": audio.validate_audio(paths.audio_dir() / config["audio"]["music_file"])},
         "cache": {"ok": audio.validate_audio(paths.cache_audio_path())},
         "launchd": launchd.status(),
     }
-    required_ok = checks["config"]["ok"] and checks["edge_tts"]["ok"] and checks["chime_audio"]["ok"] and checks["music_audio"]["ok"]
+    helper_ok = config["provider"].get("kind") != "openai_compatible" or (
+        checks["keychain_helper"]["ok"] and checks["keychain_helper"]["credential_available"]
+    )
+    required_ok = checks["config"]["ok"] and checks["edge_tts"]["ok"] and checks["chime_audio"]["ok"] and checks["music_audio"]["ok"] and helper_ok
     emit({"ok": required_ok, "checks": checks}, "诊断完成", args.json)
     return 0 if required_ok else 1
 

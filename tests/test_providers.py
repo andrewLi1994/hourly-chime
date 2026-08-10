@@ -94,6 +94,37 @@ class ProviderTests(unittest.TestCase):
             provider.generate("hydrate", "en")
         self.assertEqual(raised.exception.code, "invalid_response")
 
+    def test_saved_provider_uses_native_helper_without_exposing_key(self) -> None:
+        config = {
+            "kind": "openai_compatible",
+            "preset": "gemini",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+            "model": "gemini-2.5-flash",
+            "credential_id": "credential-123",
+            "timeout_seconds": 25,
+        }
+        with mock.patch(
+            "hourly_chime.providers.keychain.generate",
+            return_value={"ok": True, "content": "请记得喝水。", "finish_reason": "stop", "latency_ms": 12},
+        ) as generate:
+            result = providers.build_provider(config).generate("喝水", "zh")
+        self.assertEqual(result.text, "请记得喝水。")
+        self.assertEqual(result.provider, "gemini")
+        prepared_prompt, timeout = generate.call_args.args
+        self.assertIn("Simplified Chinese", prepared_prompt)
+        self.assertNotIn("credential-123", prepared_prompt)
+        self.assertEqual(timeout, 25)
+
+    def test_native_helper_error_is_classified(self) -> None:
+        provider = providers.KeychainBackedOpenAIProvider("gemini-2.5-flash", 25, "gemini")
+        with mock.patch(
+            "hourly_chime.providers.keychain.generate",
+            side_effect=providers.keychain.HelperError("keychain", "缺少 API Key"),
+        ):
+            with self.assertRaises(providers.ProviderError) as raised:
+                provider.generate("喝水", "zh")
+        self.assertEqual(raised.exception.code, "keychain")
+
     def test_codex_flags_and_structured_output(self) -> None:
         with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, {"HOURLY_CHIME_HOME": folder}), mock.patch(
             "hourly_chime.providers.resolve_codex_executable", return_value="/fake/codex"

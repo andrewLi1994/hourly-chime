@@ -131,6 +131,27 @@ class OpenAICompatibleProvider:
         )
 
 
+class KeychainBackedOpenAIProvider:
+    def __init__(self, model: str, timeout: int, name: str):
+        self.model = model
+        self.timeout = timeout
+        self.name = name
+
+    def generate(self, prompt: str, language: str) -> GeneratedText:
+        try:
+            response = keychain.generate(build_prompt(prompt, language), self.timeout)
+        except keychain.HelperError as exc:
+            raise ProviderError(exc.code, str(exc)) from exc
+        if response.get("finish_reason") == "length":
+            raise ProviderError("truncated_response", "Provider 输出被长度限制截断，请重试")
+        try:
+            text = response["content"]
+            latency_ms = int(response["latency_ms"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderError("invalid_response", "Keychain Helper 响应格式不兼容") from exc
+        return GeneratedText(sanitize_text(text), self.name, self.model, latency_ms)
+
+
 class OpenClawProvider:
     def __init__(self, timeout: int = 25, executable: str | None = None):
         self.timeout = timeout
@@ -279,11 +300,16 @@ def build_provider(provider_config: dict[str, Any], api_key_override: str | None
     if kind == "static":
         return StaticProvider(str(provider_config.get("text", "Time to drink water.")))
     if kind == "openai_compatible":
-        secret = api_key_override or keychain.read_secret(str(provider_config.get("credential_id", "")))
-        return OpenAICompatibleProvider(
-            base_url=str(provider_config["base_url"]),
+        if api_key_override:
+            return OpenAICompatibleProvider(
+                base_url=str(provider_config["base_url"]),
+                model=str(provider_config["model"]),
+                api_key=api_key_override,
+                timeout=timeout,
+                name=str(provider_config.get("preset", "custom")),
+            )
+        return KeychainBackedOpenAIProvider(
             model=str(provider_config["model"]),
-            api_key=secret,
             timeout=timeout,
             name=str(provider_config.get("preset", "custom")),
         )

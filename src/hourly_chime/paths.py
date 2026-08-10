@@ -51,6 +51,17 @@ def codex_workspace() -> Path:
     return app_home() / "codex-workspace"
 
 
+def bin_dir() -> Path:
+    return app_home() / "bin"
+
+
+def keychain_helper_path() -> Path:
+    override = os.environ.get("HOURLY_CHIME_KEYCHAIN_HELPER")
+    if override:
+        return Path(override).expanduser().resolve()
+    return bin_dir() / "hourly-chime-keychain"
+
+
 def launch_agents_dir() -> Path:
     override = os.environ.get("HOURLY_CHIME_LAUNCH_AGENTS")
     if override:
@@ -63,5 +74,5 @@ def venv_chimectl_path() -> Path:
 
 
 def ensure_layout() -> None:
-    for path in (app_home(), cache_dir(), audio_dir(), log_dir(), lock_dir(), codex_workspace()):
+    for path in (app_home(), cache_dir(), audio_dir(), log_dir(), lock_dir(), codex_workspace(), bin_dir()):
         path.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,11 @@ let package = Package(
     name: "HourlyChimeApp",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "HourlyChimeApp", targets: ["HourlyChimeApp"])
+        .executable(name: "HourlyChimeApp", targets: ["HourlyChimeApp"]),
+        .executable(name: "HourlyChimeKeychainHelper", targets: ["HourlyChimeKeychainHelper"])
     ],
-    targets: [.executableTarget(name: "HourlyChimeApp")]
+    targets: [
+        .executableTarget(name: "HourlyChimeApp"),
+        .executableTarget(name: "HourlyChimeKeychainHelper")
+    ]
 )

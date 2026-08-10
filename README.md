@@ -61,7 +61,7 @@ venv/                独立 Python 环境
 codex-workspace/     Codex 隔离空目录
 ```
 
-Gemini、NVIDIA 和 Custom 的 API Key 存入 macOS Keychain；JSON 只保留随机 `credential_id`。Custom 非本机地址必须使用 HTTPS。Codex Provider 使用当前登录的 Codex CLI、stdin 提示词、临时会话、只读沙箱、忽略用户配置/规则及 JSON Schema 输出；`chimectl doctor` 只检查登录状态，不读取或显示 `auth.json`。
+Gemini、NVIDIA 和 Custom 的 API Key 存入 macOS Keychain；JSON 只保留随机 `credential_id`。原生 Keychain Helper 自己读取密钥并完成 HTTPS 请求，Python 只能收到生成后的提醒文本，不调用 `/usr/bin/security`，因此后台刷新不会反复弹出钥匙串授权框。Helper 固定从本地配置读取 Provider 地址，Custom 非本机地址必须使用 HTTPS。Codex Provider 使用当前登录的 Codex CLI、stdin 提示词、临时会话、只读沙箱、忽略用户配置/规则及 JSON Schema 输出；`chimectl doctor` 只检查登录状态，不读取或显示 `auth.json`。
 
 ## 开发验证
 

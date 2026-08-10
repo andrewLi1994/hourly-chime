@@ -24,9 +24,21 @@ final class ConfigStore: ObservableObject {
             do {
                 async let configEnvelope: ConfigEnvelope = Task.detached { try client.decode(ConfigEnvelope.self, arguments: ["config", "get"]) }.value
                 async let statusEnvelope: StatusEnvelope = Task.detached { try client.decode(StatusEnvelope.self, arguments: ["status", "--json"]) }.value
-                config = try await configEnvelope.config
+                let loadedConfig = try await configEnvelope.config
+                config = loadedConfig
                 status = try await statusEnvelope
                 errorMessage = nil
+                if loadedConfig.provider.kind == "openai_compatible" {
+                    let credentialID = loadedConfig.provider.credentialID
+                    do {
+                        let migrated = try await Task.detached {
+                            try KeychainStore.migrateLegacyIfNeeded(credentialID: credentialID)
+                        }.value
+                        if migrated { banner = "API Key 已迁移到无弹窗的原生后台 Helper" }
+                    } catch {
+                        errorMessage = "API Key 迁移失败：\(error.localizedDescription)"
+                    }
+                }
             } catch {
                 errorMessage = "无法连接后台工具：\(error.localizedDescription)"
             }
